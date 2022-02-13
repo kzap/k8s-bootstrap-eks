@@ -11,6 +11,14 @@ server:
     destinations:
     - namespace: argocd
       server: https://kubernetes.default.svc
+  - name: core-services
+    namespace: argocd
+    description: Used to setup ArgoCD
+    sourceRepos:
+    - '*'
+    destinations:
+    - namespace: '*'
+      server: https://kubernetes.default.svc
 
   # -- Deploy ArgoCD Applications within this helm release
   # @default -- `[]` (See [values.yaml])
