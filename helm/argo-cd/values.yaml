@@ -1,0 +1,34 @@
+server:
+  # -- Deploy ArgoCD Projects within this helm release
+  # @default -- `[]` (See [values.yaml])
+  ## Ref: https://github.com/argoproj/argo-cd/blob/master/docs/operator-manual/
+  additionalProjects:
+  - name: argocd
+    namespace: argocd
+    description: Used to setup ArgoCD
+    sourceRepos:
+    - '*'
+    destinations:
+    - namespace: argocd
+      server: https://kubernetes.default.svc
+
+  # -- Deploy ArgoCD Applications within this helm release
+  # @default -- `[]` (See [values.yaml])
+  ## Ref: https://github.com/argoproj/argo-cd/blob/master/docs/operator-manual/
+  additionalApplications:
+  - name: bootstrap-argocd
+    namespace: argocd
+    project: argocd
+    source:
+      repoURL: https://github.com/kzap/k8s-mgmt-cluster
+      targetRevision: HEAD
+      path: argocd/apps
+      directory:
+        recurse: false
+    destination:
+      server: https://kubernetes.default.svc
+      namespace: argocd
+    syncPolicy:
+      automated:
+        prune: false
+        selfHeal: false

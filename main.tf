@@ -91,20 +91,6 @@ module "eks" {
   }
 
   eks_managed_node_groups = {
-    # Default node group - as provided by AWS EKS
-    default_node_group = {
-      # By default, the module creates a launch template to ensure tags are propagated to instances, etc.,
-      # so we need to disable it to use the default template provided by the AWS EKS managed node group service
-      create_launch_template = false
-      launch_template_name   = ""
-
-      # Remote access cannot be specified with a launch template
-      remote_access = {
-        ec2_ssh_key               = aws_key_pair.this.key_name
-        source_security_group_ids = [aws_security_group.remote_access.id]
-      }
-    }
-
     bottlerocket = {
       ami_type = "BOTTLEROCKET_x86_64"
       platform = "bottlerocket"
@@ -165,7 +151,6 @@ module "eks" {
       description = "EKS managed node group example launch template"
 
       ebs_optimized           = true
-      vpc_security_group_ids  = [aws_security_group.additional.id]
       disable_api_termination = false
       enable_monitoring       = true
 
@@ -345,24 +330,6 @@ module "vpc" {
   tags = local.tags
 }
 
-resource "aws_security_group" "additional" {
-  name_prefix = "${local.name}-additional"
-  vpc_id      = module.vpc.vpc_id
-
-  ingress {
-    from_port = 22
-    to_port   = 22
-    protocol  = "tcp"
-    cidr_blocks = [
-      "10.0.0.0/8",
-      "172.16.0.0/12",
-      "192.168.0.0/16",
-    ]
-  }
-
-  tags = local.tags
-}
-
 resource "aws_kms_key" "eks" {
   description             = "EKS Secret Encryption Key"
   deletion_window_in_days = 7
@@ -433,114 +400,6 @@ data "aws_iam_policy_document" "ebs" {
   }
 }
 
-# This is based on the LT that EKS would create if no custom one is specified (aws ec2 describe-launch-template-versions --launch-template-id xxx)
-# there are several more options one could set but you probably dont need to modify them
-# you can take the default and add your custom AMI and/or custom tags
-#
-# Trivia: AWS transparently creates a copy of your LaunchTemplate and actually uses that copy then for the node group. If you DONT use a custom AMI,
-# then the default user-data for bootstrapping a cluster is merged in the copy.
-
-resource "aws_launch_template" "external" {
-  name_prefix            = "external-eks-ex-"
-  description            = "EKS managed node group external launch template"
-  update_default_version = true
-
-  block_device_mappings {
-    device_name = "/dev/xvda"
-
-    ebs {
-      volume_size           = 100
-      volume_type           = "gp2"
-      delete_on_termination = true
-    }
-  }
-
-  monitoring {
-    enabled = true
-  }
-
-  network_interfaces {
-    associate_public_ip_address = false
-    delete_on_termination       = true
-  }
-
-  # if you want to use a custom AMI
-  # image_id      = var.ami_id
-
-  # If you use a custom AMI, you need to supply via user-data, the bootstrap script as EKS DOESNT merge its managed user-data then
-  # you can add more than the minimum code you see in the template, e.g. install SSM agent, see https://github.com/aws/containers-roadmap/issues/593#issuecomment-577181345
-  # (optionally you can use https://registry.terraform.io/providers/hashicorp/cloudinit/latest/docs/data-sources/cloudinit_config to render the script, example: https://github.com/terraform-aws-modules/terraform-aws-eks/pull/997#issuecomment-705286151)
-  # user_data = base64encode(data.template_file.launch_template_userdata.rendered)
-
-  tag_specifications {
-    resource_type = "instance"
-
-    tags = {
-      Name      = "external_lt"
-      CustomTag = "Instance custom tag"
-    }
-  }
-
-  tag_specifications {
-    resource_type = "volume"
-
-    tags = {
-      CustomTag = "Volume custom tag"
-    }
-  }
-
-  tag_specifications {
-    resource_type = "network-interface"
-
-    tags = {
-      CustomTag = "EKS example"
-    }
-  }
-
-  tags = {
-    CustomTag = "Launch template custom tag"
-  }
-
-  lifecycle {
-    create_before_destroy = true
-  }
-}
-
-resource "tls_private_key" "this" {
-  algorithm = "RSA"
-}
-
-resource "aws_key_pair" "this" {
-  key_name_prefix = local.name
-  public_key      = tls_private_key.this.public_key_openssh
-
-  tags = local.tags
-}
-
-resource "aws_security_group" "remote_access" {
-  name_prefix = "${local.name}-remote-access"
-  description = "Allow remote SSH access"
-  vpc_id      = module.vpc.vpc_id
-
-  ingress {
-    description = "SSH access"
-    from_port   = 22
-    to_port     = 22
-    protocol    = "tcp"
-    cidr_blocks = ["10.0.0.0/8"]
-  }
-
-  egress {
-    from_port        = 0
-    to_port          = 0
-    protocol         = "-1"
-    cidr_blocks      = ["0.0.0.0/0"]
-    ipv6_cidr_blocks = ["::/0"]
-  }
-
-  tags = local.tags
-}
-
 resource "aws_iam_policy" "node_additional" {
   name        = "${local.name}-additional"
   description = "Example usage of node additional policy"
@@ -568,25 +427,5 @@ data "aws_ami" "eks_default" {
   filter {
     name   = "name"
     values = ["amazon-eks-node-${local.cluster_version}-v*"]
-  }
-}
-
-data "aws_ami" "eks_default_arm" {
-  most_recent = true
-  owners      = ["amazon"]
-
-  filter {
-    name   = "name"
-    values = ["amazon-eks-arm64-node-${local.cluster_version}-v*"]
-  }
-}
-
-data "aws_ami" "eks_default_bottlerocket" {
-  most_recent = true
-  owners      = ["amazon"]
-
-  filter {
-    name   = "name"
-    values = ["bottlerocket-aws-k8s-${local.cluster_version}-x86_64-*"]
   }
 }
